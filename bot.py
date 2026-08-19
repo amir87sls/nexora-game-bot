@@ -53,6 +53,14 @@ def init_database():
                 "CREATE TABLE IF NOT EXISTS countries (id BIGSERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, flag TEXT DEFAULT '🌍', description TEXT DEFAULT '', active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
             )
 
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS quiz_questions (id BIGSERIAL PRIMARY KEY, question TEXT NOT NULL, option_a TEXT NOT NULL, option_b TEXT NOT NULL, option_c TEXT NOT NULL, option_d TEXT NOT NULL, correct_option TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+            )
+
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS quiz_attempts (id BIGSERIAL PRIMARY KEY, telegram_id BIGINT NOT NULL, score INTEGER DEFAULT 0, total INTEGER DEFAULT 0, passed BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+            )
+
             links = [
                 ("bot", "🤖 ربات Nexora"),
                 ("chat", "💬 گپ بازیکنان"),
@@ -160,6 +168,7 @@ async def send_owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔗 لینک‌های رسمی", callback_data="links")],
         [InlineKeyboardButton("🌍 مدیریت کشورها", callback_data="countries")],
+        [InlineKeyboardButton("📝 مدیریت آزمون", callback_data="quiz_admin")],
         [InlineKeyboardButton("👥 بازیکنان", callback_data="players")],
     ]
 
@@ -471,10 +480,16 @@ async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     name, flag, description = country
 
+    keyboard = [
+        [InlineKeyboardButton("📝 شروع آزمون", callback_data="start_quiz")]
+    ]
+
     await query.edit_message_text(
         "✅ کشور شما انتخاب شد!\n\n"
         + flag + " " + name + "\n\n"
         + (description if description else "توضیحی ثبت نشده است.")
+        + "\n\nبرای ورود به بازی باید آزمون را تکمیل کنید.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
@@ -502,101 +517,130 @@ async def players_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
+async def quiz_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
         return
 
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM quiz_questions")
+            count = cur.fetchone()[0]
+
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن سؤال", callback_data="quiz_add")],
+        [InlineKeyboardButton("📋 لیست سؤال‌ها", callback_data="quiz_list")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="owner_panel")],
+    ]
+
+    await query.edit_message_text(
+        "📝 مدیریت آزمون\n\n"
+        "تعداد سؤال‌ها: " + str(count),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def quiz_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+        return
+
+    context.user_data["quiz_step"] = "question"
+
+    await query.edit_message_text(
+        "➕ افزودن سؤال\n\n"
+        "متن سؤال را ارسال کنید."
+    )
+
+
+async def quiz_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         return
 
-    if context.user_data.get("editing_link"):
-        await save_link(update, context)
+    step = context.user_data.get("quiz_step")
+
+    if step == "question":
+        context.user_data["quiz_question"] = update.message.text.strip()
+        context.user_data["quiz_step"] = "a"
+
+        await update.message.reply_text("گزینه A را ارسال کنید.")
         return
 
-    if context.user_data.get("country_step"):
-        await receive_country(update, context)
+    if step == "a":
+        context.user_data["quiz_a"] = update.message.text.strip()
+        context.user_data["quiz_step"] = "b"
+
+        await update.message.reply_text("گزینه B را ارسال کنید.")
         return
 
+    if step == "b":
+        context.user_data["quiz_b"] = update.message.text.strip()
+        context.user_data["quiz_step"] = "c"
 
-async def run_bot():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN is not configured.")
+        await update.message.reply_text("گزینه C را ارسال کنید.")
+        return
 
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not configured.")
+    if step == "c":
+        context.user_data["quiz_c"] = update.message.text.strip()
+        context.user_data["quiz_step"] = "d"
 
-    init_database()
+        await update.message.reply_text("گزینه D را ارسال کنید.")
+        return
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    if step == "d":
+        context.user_data["quiz_d"] = update.message.text.strip()
+        context.user_data["quiz_step"] = "correct"
 
-    application.add_handler(CommandHandler("start", start))
+        await update.message.reply_text(
+            "حرف گزینه صحیح را ارسال کنید:\n\nA یا B یا C یا D"
+        )
+        return
 
-    application.add_handler(
-        CallbackQueryHandler(claim_owner, pattern=r"^claim_owner$")
-    )
+    if step == "correct":
+        correct = update.message.text.strip().upper()
 
-    application.add_handler(
-        CallbackQueryHandler(cancel_owner, pattern=r"^cancel_owner$")
-    )
+        if correct not in ["A", "B", "C", "D"]:
+            await update.message.reply_text(
+                "❌ فقط یکی از این‌ها را ارسال کن:\nA / B / C / D"
+            )
+            return
 
-    application.add_handler(
-        CallbackQueryHandler(owner_panel, pattern=r"^owner_panel$")
-    )
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO quiz_questions (question, option_a, option_b, option_c, option_d, correct_option) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (
+                        context.user_data["quiz_question"],
+                        context.user_data["quiz_a"],
+                        context.user_data["quiz_b"],
+                        context.user_data["quiz_c"],
+                        context.user_data["quiz_d"],
+                        correct,
+                    ),
+                )
+            conn.commit()
 
-    application.add_handler(
-        CallbackQueryHandler(links_menu, pattern=r"^links$")
-    )
+        context.user_data.pop("quiz_step", None)
+        context.user_data.pop("quiz_question", None)
+        context.user_data.pop("quiz_a", None)
+        context.user_data.pop("quiz_b", None)
+        context.user_data.pop("quiz_c", None)
+        context.user_data.pop("quiz_d", None)
 
-    application.add_handler(
-        CallbackQueryHandler(edit_link, pattern=r"^edit_link:")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(countries_menu, pattern=r"^countries$")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(add_country, pattern=r"^add_country$")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(country_list, pattern=r"^country_list$")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(choose_country, pattern=r"^choose_country$")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(select_country, pattern=r"^select_country:")
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(players_menu, pattern=r"^players$")
-    )
-
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
-    )
-
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-
-    await asyncio.Event().wait()
+        await update.message.reply_text(
+            "✅ سؤال با موفقیت ذخیره شد."
+        )
 
 
-def run_web():
-    app.run(
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "10000"))
-    )
+async def quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-
-def main():
-    Thread(target=run_web, daemon=True).start()
-    asyncio.run(run_bot())
-
-
-if __name__ == "__main__":
-    main()
+    if not is_owner(query.from_user.id):
+        await query.edit_message_te
