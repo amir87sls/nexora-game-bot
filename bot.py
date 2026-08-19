@@ -9,6 +9,8 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -136,18 +138,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     owner = get_owner()
 
     if owner is None:
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "👑 قبول مالکیت",
-                    callback_data="claim_owner"
-                ),
-                InlineKeyboardButton(
-                    "❌ انصراف",
-                    callback_data="cancel_owner"
-                )
-            ]
-        ]
+        keyboard = [[
+            InlineKeyboardButton(
+                "👑 قبول مالکیت",
+                callback_data="claim_owner"
+            ),
+            InlineKeyboardButton(
+                "❌ انصراف",
+                callback_data="cancel_owner"
+            )
+        ]]
 
         await update.message.reply_text(
             "🌍 به Nexora خوش آمدید!\n\n"
@@ -157,9 +157,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif owner[0] == user.id:
-        keyboard = [
-            [InlineKeyboardButton("👑 پنل مالک", callback_data="owner_panel")],
-        ]
+        keyboard = [[
+            InlineKeyboardButton(
+                "👑 پنل مالک",
+                callback_data="owner_panel"
+            )
+        ]]
 
         await update.message.reply_text(
             "👑 خوش آمدید مالک Nexora!",
@@ -211,7 +214,14 @@ async def official_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("""
                 SELECT key, title, url
                 FROM official_links
-                ORDER BY key
+                ORDER BY
+                    CASE key
+                        WHEN 'bot' THEN 1
+                        WHEN 'chat' THEN 2
+                        WHEN 'news' THEN 3
+                        WHEN 'owner' THEN 4
+                        WHEN 'rules' THEN 5
+                    END
             """)
             links = cur.fetchall()
 
@@ -242,6 +252,98 @@ async def official_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def edit_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+        return
+
+    key = query.data.split(":", 1)[1]
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT title
+                FROM official_links
+                WHERE key = %s
+            """, (key,))
+
+            result = cur.fetchone()
+
+    if not result:
+        await query.edit_message_text("❌ این لینک پیدا نشد.")
+        return
+
+    title = result[0]
+
+    context.user_data["editing_link"] = key
+
+    keyboard = [[
+        InlineKeyboardButton(
+            "❌ لغو",
+            callback_data="cancel_edit_link"
+        )
+    ]]
+
+    await query.edit_message_text(
+        f"✏️ ویرایش {title}\n\n"
+        "لینک جدید را در یک پیام ارسال کنید.\n\n"
+        "مثال:\n"
+        "https://t.me/example",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def save_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        return
+
+    key = context.user_data.get("editing_link")
+
+    if not key:
+        return
+
+    url = update.message.text.strip()
+
+    if not (
+        url.startswith("https://")
+        or url.startswith("http://")
+        or url.startswith("tg://")
+    ):
+        await update.message.reply_text(
+            "❌ لینک معتبر نیست.\n\n"
+            "لطفاً لینک را با https:// یا http:// ارسال کنید."
+        )
+        return
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE official_links
+                SET url = %s
+                WHERE key = %s
+            """, (url, key))
+
+        conn.commit()
+
+    context.user_data.pop("editing_link", None)
+
+    await update.message.reply_text(
+        "✅ لینک با موفقیت ذخیره شد."
+    )
+
+
+async def cancel_edit_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data.pop("editing_link", None)
+
+    await official_links(update, context)
 
 
 async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -343,6 +445,27 @@ async def run_bot():
         CallbackQueryHandler(
             official_links,
             pattern="^official_links$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            edit_link,
+            pattern="^edit_link:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            cancel_edit_link,
+            pattern="^cancel_edit_link$"
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            save_link
         )
     )
 
