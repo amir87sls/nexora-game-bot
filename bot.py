@@ -3,8 +3,13 @@ import asyncio
 import psycopg
 from flask import Flask
 from threading import Thread
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -28,6 +33,7 @@ def init_database():
 
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS players (
                     id BIGSERIAL PRIMARY KEY,
@@ -55,7 +61,28 @@ def init_database():
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS owner (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    telegram_id BIGINT UNIQUE NOT NULL,
+                    username TEXT,
+                    first_name TEXT,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
         conn.commit()
+
+
+def get_owner():
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT telegram_id
+                FROM owner
+                WHERE id = 1
+            """)
+            return cur.fetchone()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,10 +105,95 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         conn.commit()
 
-    await update.message.reply_text(
-        "🌍 به Nexora خوش آمدید!\n\n"
-        "ربات با موفقیت فعال شد. 🔥\n\n"
-        "حساب شما در سیستم ثبت شد."
+    owner = get_owner()
+
+    if owner is None:
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "👑 قبول مالکیت",
+                    callback_data="claim_owner"
+                ),
+                InlineKeyboardButton(
+                    "❌ انصراف",
+                    callback_data="cancel_owner"
+                )
+            ]
+        ]
+
+        await update.message.reply_text(
+            "🌍 به Nexora خوش آمدید!\n\n"
+            "هنوز مالک بازی تعیین نشده است.\n"
+            "اگر شما سازنده بازی هستید، می‌توانید مالکیت Nexora را بر عهده بگیرید.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif owner[0] == user.id:
+        await update.message.reply_text(
+            "👑 خوش آمدید مالک Nexora!\n\n"
+            "پنل مدیریت به‌زودی در اینجا فعال می‌شود."
+        )
+
+    else:
+        await update.message.reply_text(
+            "🌍 به Nexora خوش آمدید!\n\n"
+            "حساب شما در سیستم ثبت شد. 🔥"
+        )
+
+
+async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+
+            cur.execute("""
+                SELECT telegram_id
+                FROM owner
+                WHERE id = 1
+            """)
+
+            existing_owner = cur.fetchone()
+
+            if existing_owner is not None:
+                await query.edit_message_text(
+                    "🔒 مالک Nexora قبلاً تعیین شده است."
+                )
+                return
+
+            cur.execute("""
+                INSERT INTO owner (
+                    id,
+                    telegram_id,
+                    username,
+                    first_name
+                )
+                VALUES (1, %s, %s, %s)
+            """, (
+                user.id,
+                user.username,
+                user.first_name
+            ))
+
+        conn.commit()
+
+    await query.edit_message_text(
+        "👑 تبریک!\n\n"
+        "شما با موفقیت به‌عنوان مالک Nexora ثبت شدید. 🔒\n\n"
+        "مالکیت به‌صورت دائمی در دیتابیس ذخیره شد."
+    )
+
+
+async def cancel_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text(
+        "❌ درخواست مالکیت لغو شد.\n\n"
+        "برای دریافت دوباره گزینه مالکیت، /start را بزنید."
     )
 
 
@@ -96,10 +208,26 @@ async def run_bot():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured.")
 
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not configured.")
+
     init_database()
 
     application = Application.builder().token(BOT_TOKEN).build()
+
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(
+        CallbackQueryHandler(
+            claim_owner,
+            pattern="^claim_owner$"
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            cancel_owner,
+            pattern="^cancel_owner$"
+        )
+    )
 
     await application.initialize()
     await application.start()
