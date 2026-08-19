@@ -71,6 +71,29 @@ def init_database():
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS official_links (
+                    key TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    url TEXT
+                )
+            """)
+
+            default_links = [
+                ("news", "📰 کانال اخبار", ""),
+                ("chat", "💬 گپ بازیکنان", ""),
+                ("rules", "📚 قوانین و آموزش", ""),
+                ("bot", "🤖 ربات Nexora", ""),
+                ("owner", "👑 پیوی مالک", ""),
+            ]
+
+            for key, title, url in default_links:
+                cur.execute("""
+                    INSERT INTO official_links (key, title, url)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (key) DO NOTHING
+                """, (key, title, url))
+
         conn.commit()
 
 
@@ -83,6 +106,11 @@ def get_owner():
                 WHERE id = 1
             """)
             return cur.fetchone()
+
+
+def is_owner(user_id):
+    owner = get_owner()
+    return owner is not None and owner[0] == user_id
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -129,9 +157,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif owner[0] == user.id:
+        keyboard = [
+            [InlineKeyboardButton("👑 پنل مالک", callback_data="owner_panel")],
+        ]
+
         await update.message.reply_text(
-            "👑 خوش آمدید مالک Nexora!\n\n"
-            "پنل مدیریت به‌زودی در اینجا فعال می‌شود."
+            "👑 خوش آمدید مالک Nexora!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     else:
@@ -139,6 +171,77 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🌍 به Nexora خوش آمدید!\n\n"
             "حساب شما در سیستم ثبت شد. 🔥"
         )
+
+
+async def owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("🌍 مدیریت کشورها", callback_data="countries")],
+        [InlineKeyboardButton("👤 بازیکنان", callback_data="players")],
+        [InlineKeyboardButton("🛒 شاپ", callback_data="shop")],
+        [InlineKeyboardButton("💳 پرداخت‌ها", callback_data="payments")],
+        [InlineKeyboardButton("🔗 لینک‌های رسمی", callback_data="official_links")],
+        [InlineKeyboardButton("⚙️ تنظیمات بازی", callback_data="settings")],
+        [InlineKeyboardButton("🏁 مدیریت سیزن", callback_data="seasons")],
+    ]
+
+    await query.edit_message_text(
+        "👑 پنل مدیریت Nexora\n\n"
+        "یک بخش را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def official_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+        return
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT key, title, url
+                FROM official_links
+                ORDER BY key
+            """)
+            links = cur.fetchall()
+
+    keyboard = []
+
+    for key, title, url in links:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"✏️ {title}",
+                callback_data=f"edit_link:{key}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "🔙 بازگشت به پنل",
+            callback_data="owner_panel"
+        )
+    ])
+
+    text = "🔗 مدیریت لینک‌های رسمی\n\n"
+
+    for key, title, url in links:
+        text += f"{title}\n"
+        text += f"{url if url else '❌ تنظیم نشده'}\n\n"
+
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,8 +285,7 @@ async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         "👑 تبریک!\n\n"
-        "شما با موفقیت به‌عنوان مالک Nexora ثبت شدید. 🔒\n\n"
-        "مالکیت به‌صورت دائمی در دیتابیس ذخیره شد."
+        "شما با موفقیت به‌عنوان مالک Nexora ثبت شدید. 🔒"
     )
 
 
@@ -192,8 +294,7 @@ async def cancel_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     await query.edit_message_text(
-        "❌ درخواست مالکیت لغو شد.\n\n"
-        "برای دریافت دوباره گزینه مالکیت، /start را بزنید."
+        "❌ درخواست مالکیت لغو شد."
     )
 
 
@@ -216,16 +317,32 @@ async def run_bot():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+
     application.add_handler(
         CallbackQueryHandler(
             claim_owner,
             pattern="^claim_owner$"
         )
     )
+
     application.add_handler(
         CallbackQueryHandler(
             cancel_owner,
             pattern="^cancel_owner$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            owner_panel,
+            pattern="^owner_panel$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            official_links,
+            pattern="^official_links$"
         )
     )
 
