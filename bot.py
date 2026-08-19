@@ -414,7 +414,7 @@ async def cancel_owner(
         "❌ درخواست مالکیت لغو شد.\n\n"
         "برای شروع دوباره /start را بزنید."
             )
-    async def owner_panel(
+async def player_home(
     update,
     context,
 ):
