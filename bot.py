@@ -1760,7 +1760,7 @@ async def country_info(
         [
             InlineKeyboardButton(
                 "🔙 بازگشت",
-             بعد از اینکه این را گذاشتی، بخش ۳ قبلی را هنوز نگذار؛ چون من می‌خواهم نسخه نهایی بخش ۳ را با Handlerهای کامل و هماهنگ با این دو بخش بدهم تا دوباره به خطای "IndentationError" یا Handler ناقص نخوریم.   callback_data="country_menu",
+                callback_data="country_menu",
             )
         ]
     ]
