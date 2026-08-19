@@ -14,7 +14,9 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 
 
@@ -103,7 +105,6 @@ def init_database():
                 ADD COLUMN IF NOT EXISTS quiz_passed BOOLEAN DEFAULT FALSE
             """)
 
-
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS owner (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -113,7 +114,6 @@ def init_database():
                     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS countries (
@@ -167,7 +167,6 @@ def init_database():
                 ADD COLUMN IF NOT EXISTS stability INTEGER DEFAULT 100
             """)
 
-
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS official_links (
                     key TEXT PRIMARY KEY,
@@ -176,7 +175,6 @@ def init_database():
                 )
             """)
 
-
             links = [
                 ("bot", "🤖 ربات Nexora"),
                 ("chat", "💬 گپ بازیکنان"),
@@ -184,7 +182,6 @@ def init_database():
                 ("owner", "👑 پیوی مالک"),
                 ("rules", "📚 قوانین و آموزش"),
             ]
-
 
             for key, title in links:
 
@@ -197,7 +194,6 @@ def init_database():
                     """,
                     (key, title),
                 )
-
 
         conn.commit()
 
@@ -270,7 +266,6 @@ async def start(
 
     owner = get_owner()
 
-
     if owner is None:
 
         keyboard = [
@@ -296,21 +291,13 @@ async def start(
 
         return
 
-
     if is_owner(user.id):
 
-        await owner_panel(
-            update,
-            context,
-        )
+        await owner_panel(update, context)
 
         return
 
-
-    await player_home(
-        update,
-        context,
-    )
+    await player_home(update, context)
 
 
 async def player_home(
@@ -333,13 +320,11 @@ async def player_home(
         ],
     ]
 
-
     text = (
         "🌍 Nexora\n\n"
         "👤 حساب بازیکن شما فعال است.\n\n"
         "برای ادامه یکی از گزینه‌ها را انتخاب کنید."
     )
-
 
     if update.callback_query:
 
@@ -367,7 +352,6 @@ async def claim_owner(
 
     user = query.from_user
 
-
     with db() as conn:
 
         with conn.cursor() as cur:
@@ -382,7 +366,6 @@ async def claim_owner(
 
             owner = cur.fetchone()
 
-
             if owner is not None:
 
                 await query.edit_message_text(
@@ -390,7 +373,6 @@ async def claim_owner(
                 )
 
                 return
-
 
             cur.execute(
                 """
@@ -412,10 +394,10 @@ async def claim_owner(
 
         conn.commit()
 
-
     await query.edit_message_text(
         "👑 تبریک!\n\n"
-        "شما با موفقیت مالک Nexora شدید. 🔒"
+        "شما با موفقیت مالک Nexora شدید. 🔒\n\n"
+        "دوباره /start را بزنید تا پنل مالک باز شود."
     )
 
 
@@ -443,72 +425,61 @@ async def cancel_owner(
         await query.answer()
 
         if not is_owner(query.from_user.id):
+
             await query.edit_message_text(
                 "⛔ دسترسی غیرمجاز."
             )
+
             return
 
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "🌍 مدیریت کشورها",
-                    callback_data="country_admin",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "👥 بازیکنان",
-                    callback_data="players_admin",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🔗 لینک‌های رسمی",
-                    callback_data="links_admin",
-                )
-            ],
-        ]
+    else:
 
-        await query.edit_message_text(
-            "👑 پنل مالک Nexora\n\n"
-            "یک بخش را انتخاب کنید:",
+        if not is_owner(update.effective_user.id):
+
+            return
+
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🌍 مدیریت کشورها",
+                callback_data="country_admin",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 بازیکنان",
+                callback_data="players_admin",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔗 لینک‌های رسمی",
+                callback_data="links_admin",
+            )
+        ],
+    ]
+
+
+    text = (
+        "👑 پنل مالک Nexora\n\n"
+        "یک بخش را انتخاب کنید:"
+    )
+
+
+    if update.callback_query:
+
+        await update.callback_query.edit_message_text(
+            text,
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     else:
 
-        if not is_owner(update.effective_user.id):
-            return
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "🌍 مدیریت کشورها",
-                    callback_data="country_admin",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "👥 بازیکنان",
-                    callback_data="players_admin",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🔗 لینک‌های رسمی",
-                    callback_data="links_admin",
-                )
-            ],
-        ]
-
         await update.message.reply_text(
-            "👑 پنل مالک Nexora\n\n"
-            "یک بخش را انتخاب کنید:",
+            text,
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-
-
-# ---------------- COUNTRY ADMIN ----------------
 
 
 async def country_admin(
@@ -517,6 +488,7 @@ async def country_admin(
 ):
 
     query = update.callback_query
+
     await query.answer()
 
     if not is_owner(query.from_user.id):
@@ -524,6 +496,7 @@ async def country_admin(
         await query.edit_message_text(
             "⛔ دسترسی غیرمجاز."
         )
+
         return
 
 
@@ -538,6 +511,12 @@ async def country_admin(
             InlineKeyboardButton(
                 "📋 لیست کشورها",
                 callback_data="country_list",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👑 تعیین حاکم",
+                callback_data="assign_ruler",
             )
         ],
         [
@@ -561,6 +540,7 @@ async def add_country(
 ):
 
     query = update.callback_query
+
     await query.answer()
 
     if not is_owner(query.from_user.id):
@@ -568,6 +548,7 @@ async def add_country(
         await query.edit_message_text(
             "⛔ دسترسی غیرمجاز."
         )
+
         return
 
 
@@ -588,6 +569,7 @@ async def receive_country(
 ):
 
     if not is_owner(update.effective_user.id):
+
         return
 
 
@@ -600,15 +582,20 @@ async def receive_country(
 
         name = update.message.text.strip()
 
+
         if not name:
 
             await update.message.reply_text(
                 "❌ نام کشور نمی‌تواند خالی باشد."
             )
+
             return
 
 
-        context.user_data["country_name"] = name
+        context.user_data[
+            "country_name"
+        ] = name
+
 
         context.user_data[
             "country_step"
@@ -627,6 +614,7 @@ async def receive_country(
 
         flag = update.message.text.strip()
 
+
         if not flag:
 
             flag = "🌍"
@@ -635,6 +623,7 @@ async def receive_country(
         context.user_data[
             "country_flag"
         ] = flag
+
 
         context.user_data[
             "country_step"
@@ -652,25 +641,18 @@ async def receive_country(
 
     if step == "description":
 
-        name = context.user_data.get(
-            "country_name"
-        )
-
-        flag = context.user_data.get(
-            "country_flag",
-            "🌍",
-        )
-
         description = update.message.text.strip()
 
 
         if description == "ندارد":
+
             description = ""
 
 
         context.user_data[
             "country_description"
         ] = description
+
 
         context.user_data[
             "country_step"
@@ -706,6 +688,8 @@ async def receive_country(
             ),
         )
 
+        return
+
 
 async def select_government(
     update: Update,
@@ -713,13 +697,16 @@ async def select_government(
 ):
 
     query = update.callback_query
+
     await query.answer()
+
 
     if not is_owner(query.from_user.id):
 
         await query.edit_message_text(
             "⛔ دسترسی غیرمجاز."
         )
+
         return
 
 
@@ -730,6 +717,7 @@ async def select_government(
         await query.edit_message_text(
             "❌ این درخواست منقضی شده است."
         )
+
         return
 
 
@@ -756,6 +744,7 @@ async def select_government(
         await query.edit_message_text(
             "❌ نوع حکومت نامعتبر است."
         )
+
         return
 
 
@@ -825,6 +814,7 @@ async def select_government(
         )
 
         context.user_data.clear()
+
         return
 
 
@@ -840,13 +830,9 @@ async def select_government(
         + "🏛️ حکومت: "
         + government
         + "\n\n"
-        "⚠️ کشور هنوز فعال نیست.\n"
-        "ابتدا باید یک بازیکن به عنوان "
-        "رئیس جمهور، پادشاه یا رهبر آن تعیین شود."
+        "🔴 کشور هنوز فعال نیست.\n"
+        "ابتدا باید برای آن حاکم تعیین شود."
     )
-
-
-# ---------------- COUNTRY LIST ----------------
 
 
 async def country_list(
@@ -855,13 +841,16 @@ async def country_list(
 ):
 
     query = update.callback_query
+
     await query.answer()
+
 
     if not is_owner(query.from_user.id):
 
         await query.edit_message_text(
             "⛔ دسترسی غیرمجاز."
         )
+
         return
 
 
@@ -899,6 +888,7 @@ async def country_list(
     else:
 
         text = "📋 کشورهای Nexora\n\n"
+
 
         for row in countries:
 
@@ -943,16 +933,16 @@ async def country_list(
                 + ruler
                 + "\n"
                 + "💰 خزانه: "
-                + str(treasury)
+                + str(treasury or 0)
                 + "\n"
                 + "📈 درآمد روزانه: "
-                + str(daily_income)
+                + str(daily_income or 0)
                 + "\n"
                 + "❤️ رضایت: "
-                + str(satisfaction)
+                + str(satisfaction or 0)
                 + "%\n"
                 + "🛡️ ثبات: "
-                + str(stability)
+                + str(stability or 0)
                 + "%\n\n"
             )
 
@@ -981,9 +971,426 @@ async def country_list(
 
     await query.edit_message_text(
         text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+    # ---------------- ASSIGN RULER ----------------
+
+
+async def assign_ruler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+
+        await query.edit_message_text(
+            "⛔ دسترسی غیرمجاز."
+        )
+
+        return
+
+
+    with db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT id, name, flag
+                FROM countries
+                WHERE ruler_telegram_id IS NULL
+                ORDER BY name
+                """
+            )
+
+            countries = cur.fetchall()
+
+
+    if not countries:
+
+        await query.edit_message_text(
+            "❌ هیچ کشور بدون حاکمی وجود ندارد."
+        )
+
+        return
+
+
+    keyboard = []
+
+
+    for country_id, name, flag in countries:
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    flag
+                    + " "
+                    + name,
+                    callback_data=(
+                        "choose_ruler_country:"
+                        + str(country_id)
+                    ),
+                )
+            ]
+        )
+
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                "🔙 بازگشت",
+                callback_data="country_admin",
+            )
+        ]
+    )
+
+
+    await query.edit_message_text(
+        "👑 تعیین حاکم\n\n"
+        "ابتدا کشور موردنظر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(
             keyboard
         ),
+    )
+
+
+async def choose_ruler_country(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+    await query.answer()
+
+
+    if not is_owner(query.from_user.id):
+
+        await query.edit_message_text(
+            "⛔ دسترسی غیرمجاز."
+        )
+
+        return
+
+
+    try:
+
+        country_id = int(
+            query.data.split(
+                ":",
+                1,
+            )[1]
+        )
+
+    except (ValueError, IndexError):
+
+        await query.edit_message_text(
+            "❌ کشور نامعتبر است."
+        )
+
+        return
+
+
+    context.user_data[
+        "ruler_country_id"
+    ] = country_id
+
+
+    with db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT name, flag, government_type
+                FROM countries
+                WHERE id = %s
+                """,
+                (country_id,),
+            )
+
+            country = cur.fetchone()
+
+
+            cur.execute(
+                """
+                SELECT
+                    telegram_id,
+                    first_name,
+                    username
+                FROM players
+                WHERE country_id IS NULL
+                ORDER BY created_at
+                LIMIT 50
+                """
+            )
+
+            players = cur.fetchall()
+
+
+    if not country:
+
+        await query.edit_message_text(
+            "❌ کشور پیدا نشد."
+        )
+
+        return
+
+
+    if not players:
+
+        await query.edit_message_text(
+            "❌ هیچ بازیکنی بدون کشور وجود ندارد.\n\n"
+            "ابتدا بازیکن موردنظر باید /start را زده باشد."
+        )
+
+        return
+
+
+    (
+        country_name,
+        country_flag,
+        government,
+    ) = country
+
+
+    keyboard = []
+
+
+    for telegram_id, first_name, username in players:
+
+        display_name = (
+            first_name
+            or username
+            or str(telegram_id)
+        )
+
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "👤 "
+                    + display_name,
+                    callback_data=(
+                        "set_ruler:"
+                        + str(telegram_id)
+                    ),
+                )
+            ]
+        )
+
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                "🔙 بازگشت",
+                callback_data="assign_ruler",
+            )
+        ]
+    )
+
+
+    await query.edit_message_text(
+        "👑 انتخاب حاکم\n\n"
+        + country_flag
+        + " "
+        + country_name
+        + "\n"
+        + "🏛️ حکومت: "
+        + str(government or "-")
+        + "\n\n"
+        "بازیکن موردنظر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        ),
+    )
+
+
+async def set_ruler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+    await query.answer()
+
+
+    if not is_owner(query.from_user.id):
+
+        await query.edit_message_text(
+            "⛔ دسترسی غیرمجاز."
+        )
+
+        return
+
+
+    try:
+
+        ruler_id = int(
+            query.data.split(
+                ":",
+                1,
+            )[1]
+        )
+
+    except (ValueError, IndexError):
+
+        await query.edit_message_text(
+            "❌ بازیکن نامعتبر است."
+        )
+
+        return
+
+
+    country_id = context.user_data.get(
+        "ruler_country_id"
+    )
+
+
+    if not country_id:
+
+        await query.edit_message_text(
+            "❌ کشور انتخاب نشده است."
+        )
+
+        return
+
+
+    with db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    name,
+                    flag,
+                    government_type,
+                    ruler_telegram_id
+                FROM countries
+                WHERE id = %s
+                """,
+                (country_id,),
+            )
+
+            country = cur.fetchone()
+
+
+            if not country:
+
+                await query.edit_message_text(
+                    "❌ کشور پیدا نشد."
+                )
+
+                return
+
+
+            if country[3] is not None:
+
+                await query.edit_message_text(
+                    "❌ این کشور قبلاً حاکم دارد."
+                )
+
+                return
+
+
+            cur.execute(
+                """
+                SELECT
+                    first_name,
+                    username,
+                    country_id
+                FROM players
+                WHERE telegram_id = %s
+                """,
+                (ruler_id,),
+            )
+
+            player = cur.fetchone()
+
+
+            if not player:
+
+                await query.edit_message_text(
+                    "❌ بازیکن پیدا نشد."
+                )
+
+                return
+
+
+            if player[2] is not None:
+
+                await query.edit_message_text(
+                    "❌ این بازیکن قبلاً عضو یک کشور است."
+                )
+
+                return
+
+
+            cur.execute(
+                """
+                UPDATE players
+                SET
+                    country_id = %s,
+                    role = %s,
+                    government_type = %s
+                WHERE telegram_id = %s
+                """,
+                (
+                    country_id,
+                    "ruler",
+                    country[2],
+                    ruler_id,
+                ),
+            )
+
+
+            cur.execute(
+                """
+                UPDATE countries
+                SET
+                    ruler_telegram_id = %s,
+                    active = TRUE
+                WHERE id = %s
+                """,
+                (
+                    ruler_id,
+                    country_id,
+                ),
+            )
+
+
+        conn.commit()
+
+
+    context.user_data.pop(
+        "ruler_country_id",
+        None,
+    )
+
+
+    ruler_name = (
+        player[0]
+        or player[1]
+        or str(ruler_id)
+    )
+
+
+    await query.edit_message_text(
+        "✅ حاکم با موفقیت تعیین شد.\n\n"
+        + country[1]
+        + " "
+        + country[0]
+        + "\n\n"
+        "👑 حاکم: "
+        + ruler_name
+        + "\n"
+        "🏛️ حکومت: "
+        + str(country[2])
+        + "\n"
+        "🟢 کشور اکنون فعال است."
     )
 
 
@@ -1031,6 +1438,7 @@ async def my_profile(
             "❌ پروفایل شما پیدا نشد.\n"
             "دوباره /start را بزنید."
         )
+
         return
 
 
@@ -1114,8 +1522,10 @@ async def my_profile(
         reply_markup=InlineKeyboardMarkup(
             keyboard
         ),
-)
-    # ---------------- PLAYER COUNTRY MENU ----------------
+    )
+
+
+# ---------------- COUNTRY MENU ----------------
 
 
 async def country_menu(
@@ -1125,6 +1535,7 @@ async def country_menu(
 
     query = update.callback_query
     await query.answer()
+
 
     with db() as conn:
 
@@ -1136,10 +1547,9 @@ async def country_menu(
                     id,
                     name,
                     flag,
-                    government_type,
-                    active,
-                    ruler_telegram_id
+                    government_type
                 FROM countries
+                WHERE active = TRUE
                 ORDER BY name
                 """
             )
@@ -1150,27 +1560,16 @@ async def country_menu(
     if not countries:
 
         await query.edit_message_text(
-            "🌍 هنوز هیچ کشوری ساخته نشده است."
+            "🌍 هنوز هیچ کشور فعالی وجود ندارد."
         )
+
         return
 
 
     keyboard = []
 
 
-    for (
-        country_id,
-        name,
-        flag,
-        government,
-        active,
-        ruler_id,
-    ) in countries:
-
-        if not active:
-
-            continue
-
+    for country_id, name, flag, government in countries:
 
         keyboard.append(
             [
@@ -1185,14 +1584,6 @@ async def country_menu(
                 )
             ]
         )
-
-
-    if not keyboard:
-
-        await query.edit_message_text(
-            "🌍 هنوز هیچ کشور فعالی برای بازی وجود ندارد."
-        )
-        return
 
 
     keyboard.append(
@@ -1240,6 +1631,7 @@ async def country_info(
         await query.edit_message_text(
             "❌ کشور نامعتبر است."
         )
+
         return
 
 
@@ -1274,6 +1666,7 @@ async def country_info(
         await query.edit_message_text(
             "❌ کشور پیدا نشد."
         )
+
         return
 
 
@@ -1296,6 +1689,7 @@ async def country_info(
         await query.edit_message_text(
             "🔴 این کشور هنوز فعال نشده است."
         )
+
         return
 
 
@@ -1365,19 +1759,10 @@ async def country_info(
     keyboard = [
         [
             InlineKeyboardButton(
-                "🌍 انتخاب این کشور",
-                callback_data=(
-                    "join_country:"
-                    + str(country_id)
-                ),
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "🔙 بازگشت",
-                callback_data="country_menu",
+             بعد از اینکه این را گذاشتی، بخش ۳ قبلی را هنوز نگذار؛ چون من می‌خواهم نسخه نهایی بخش ۳ را با Handlerهای کامل و هماهنگ با این دو بخش بدهم تا دوباره به خطای "IndentationError" یا Handler ناقص نخوریم.   callback_data="country_menu",
             )
-        ],
+        ]
     ]
 
 
@@ -1387,166 +1772,42 @@ async def country_info(
             keyboard
         ),
     )
+# ---------------- BACK TO PLAYER MENU ----------------
 
 
-# ---------------- JOIN COUNTRY ----------------
-
-
-async def join_country(
+async def player_home_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
+
     await query.answer()
 
-
-    try:
-
-        country_id = int(
-            query.data.split(
-                ":",
-                1,
-            )[1]
-        )
-
-    except (ValueError, IndexError):
-
-        await query.edit_message_text(
-            "❌ کشور نامعتبر است."
-        )
-        return
-
-
-    user_id = query.from_user.id
-
-
-    with db() as conn:
-
-        with conn.cursor() as cur:
-
-            cur.execute(
-                """
-                SELECT
-                    name,
-                    flag,
-                    government_type,
-                    active,
-                    ruler_telegram_id
-                FROM countries
-                WHERE id = %s
-                """,
-                (country_id,),
-            )
-
-            country = cur.fetchone()
-
-
-            if not country:
-
-                await query.edit_message_text(
-                    "❌ کشور پیدا نشد."
-                )
-                return
-
-
-            (
-                name,
-                flag,
-                government,
-                active,
-                ruler_id,
-            ) = country
-
-
-            if not active:
-
-                await query.edit_message_text(
-                    "🔴 این کشور هنوز فعال نیست."
-                )
-                return
-
-
-            if ruler_id:
-
-                await query.edit_message_text(
-                    "👑 این کشور در حال حاضر حاکم دارد.\n\n"
-                    "در مراحل بعدی می‌توانیم سیستم "
-                    "انتخابات، انتقال قدرت و جانشینی "
-                    "را اضافه کنیم."
-                )
-                return
-
-
-            cur.execute(
-                """
-                UPDATE players
-                SET
-                    country_id = %s,
-                    role = %s,
-                    government_type = %s
-                WHERE telegram_id = %s
-                """,
-                (
-                    country_id,
-                    "ruler",
-                    government,
-                    user_id,
-                ),
-            )
-
-
-            cur.execute(
-                """
-                UPDATE countries
-                SET
-                    ruler_telegram_id = %s,
-                    active = TRUE
-                WHERE id = %s
-                """,
-                (
-                    user_id,
-                    country_id,
-                ),
-            )
-
-
-        conn.commit()
-
-
-    await query.edit_message_text(
-        "👑 تبریک!\n\n"
-        + flag
-        + " "
-        + name
-        + "\n\n"
-        "شما به عنوان حاکم این کشور انتخاب شدید.\n\n"
-        "🏛️ نوع حکومت: "
-        + str(government)
-        + "\n"
-        "🔒 کشور شما اکنون فعال شد.\n\n"
-        "در مراحل بعدی امکانات کامل مدیریت کشور "
-        "به پنل شما اضافه خواهد شد."
+    await player_home(
+        update,
+        context,
     )
 
 
-# ---------------- PLAYERS ADMIN ----------------
+# ---------------- LINKS ADMIN ----------------
 
 
-async def players_admin(
+async def links_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
-    await query.answer()
 
+    await query.answer()
 
     if not is_owner(query.from_user.id):
 
         await query.edit_message_text(
             "⛔ دسترسی غیرمجاز."
         )
+
         return
 
 
@@ -1556,80 +1817,33 @@ async def players_admin(
 
             cur.execute(
                 """
-                SELECT
-                    telegram_id,
-                    first_name,
-                    username,
-                    country_id,
-                    role
-                FROM players
-                ORDER BY created_at DESC
-                LIMIT 50
+                SELECT key, title, url
+                FROM official_links
+                ORDER BY key
                 """
             )
 
-            players = cur.fetchall()
+            links = cur.fetchall()
 
 
-    if not players:
+    if not links:
 
-        text = "👥 هنوز بازیکنی ثبت نشده است."
+        text = "🔗 هنوز هیچ لینکی ثبت نشده است."
 
     else:
 
-        text = "👥 بازیکنان Nexora\n\n"
+        text = "🔗 لینک‌های رسمی Nexora\n\n"
 
-
-        for (
-            telegram_id,
-            first_name,
-            username,
-            country_id,
-            role,
-        ) in players:
-
-            country_name = "بدون کشور"
-
-
-            if country_id:
-
-                with db() as conn:
-
-                    with conn.cursor() as cur:
-
-                        cur.execute(
-                            """
-                            SELECT name, flag
-                            FROM countries
-                            WHERE id = %s
-                            """,
-                            (country_id,),
-                        )
-
-                        country = cur.fetchone()
-
-
-                        if country:
-
-                            country_name = (
-                                country[1]
-                                + " "
-                                + country[0]
-                            )
-
+        for key, title, url in links:
 
             text += (
-                "👤 "
-                + str(first_name or "-")
+                title
                 + "\n"
-                + "🆔 "
-                + str(telegram_id)
-                + "\n"
-                + "🌍 "
-                + country_name
-                + "\n"
-                + "🎖️ "
-                + str(role or "player")
+                + (
+                    url
+                    if url
+                    else "❌ تنظیم نشده"
+                )
                 + "\n\n"
             )
 
@@ -1652,96 +1866,6 @@ async def players_admin(
     )
 
 
-# ---------------- LINKS ADMIN ----------------
-
-
-async def links_admin(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    query = update.callback_query
-    await query.answer()
-
-
-    if not is_owner(query.from_user.id):
-
-        await query.edit_message_text(
-            "⛔ دسترسی غیرمجاز."
-        )
-        return
-
-
-    with db() as conn:
-
-        with conn.cursor() as cur:
-
-            cur.execute(
-                """
-                SELECT
-                    key,
-                    title,
-                    url
-                FROM official_links
-                ORDER BY key
-                """
-            )
-
-            links = cur.fetchall()
-
-
-    text = "🔗 لینک‌های رسمی Nexora\n\n"
-
-
-    for key, title, url in links:
-
-        text += (
-            title
-            + "\n"
-            + (
-                url
-                if url
-                else "❌ تنظیم نشده"
-            )
-            + "\n\n"
-        )
-
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "🔙 بازگشت",
-                callback_data="owner_panel",
-            )
-        ]
-    ]
-
-
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            keyboard
-        ),
-    )
-
-
-# ---------------- BACK TO PLAYER MENU ----------------
-
-
-async def player_home_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    query = update.callback_query
-    await query.answer()
-
-    await player_home(
-        update,
-        context,
-    )
-
-
 # ---------------- MAIN ----------------
 
 
@@ -1757,6 +1881,8 @@ def main():
     )
 
 
+    # START
+
     application.add_handler(
         CommandHandler(
             "start",
@@ -1765,6 +1891,8 @@ def main():
     )
 
 
+    # OWNER
+
     application.add_handler(
         CallbackQueryHandler(
             claim_owner,
@@ -1772,14 +1900,12 @@ def main():
         )
     )
 
-
     application.add_handler(
         CallbackQueryHandler(
             cancel_owner,
             pattern=r"^cancel_owner$",
         )
     )
-
 
     application.add_handler(
         CallbackQueryHandler(
@@ -1789,13 +1915,14 @@ def main():
     )
 
 
+    # COUNTRY ADMIN
+
     application.add_handler(
         CallbackQueryHandler(
             country_admin,
             pattern=r"^country_admin$",
         )
     )
-
 
     application.add_handler(
         CallbackQueryHandler(
@@ -1804,6 +1931,33 @@ def main():
         )
     )
 
+    application.add_handler(
+        CallbackQueryHandler(
+            country_list,
+            pattern=r"^country_list$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            assign_ruler,
+            pattern=r"^assign_ruler$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            choose_ruler_country,
+            pattern=r"^choose_ruler_country:",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            set_ruler,
+            pattern=r"^set_ruler:",
+        )
+    )
 
     application.add_handler(
         CallbackQueryHandler(
@@ -1813,13 +1967,7 @@ def main():
     )
 
 
-    application.add_handler(
-        CallbackQueryHandler(
-            country_list,
-            pattern=r"^country_list$",
-        )
-    )
-
+    # PLAYER
 
     application.add_handler(
         CallbackQueryHandler(
@@ -1828,7 +1976,6 @@ def main():
         )
     )
 
-
     application.add_handler(
         CallbackQueryHandler(
             country_info,
@@ -1836,38 +1983,12 @@ def main():
         )
     )
 
-
-    application.add_handler(
-        CallbackQueryHandler(
-            join_country,
-            pattern=r"^join_country:",
-        )
-    )
-
-
-    application.add_handler(
-        CallbackQueryHandler(
-            players_admin,
-            pattern=r"^players_admin$",
-        )
-    )
-
-
-    application.add_handler(
-        CallbackQueryHandler(
-            links_admin,
-            pattern=r"^links_admin$",
-        )
-    )
-
-
     application.add_handler(
         CallbackQueryHandler(
             my_profile,
             pattern=r"^my_profile$",
         )
     )
-
 
     application.add_handler(
         CallbackQueryHandler(
@@ -1877,6 +1998,18 @@ def main():
     )
 
 
+    # LINKS
+
+    application.add_handler(
+        CallbackQueryHandler(
+            links_admin,
+            pattern=r"^links_admin$",
+        )
+    )
+
+
+    # TEXT INPUT
+
     application.add_handler(
         MessageHandler(
             filters.TEXT
@@ -1885,6 +2018,8 @@ def main():
         )
     )
 
+
+    # WEB SERVER
 
     Thread(
         target=run_web,
@@ -1901,4 +2036,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
