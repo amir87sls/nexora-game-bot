@@ -4,14 +4,7 @@ import psycopg
 from flask import Flask
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -29,10 +22,6 @@ def healthz():
     return "OK"
 
 
-# =========================
-# DATABASE
-# =========================
-
 def db():
     return psycopg.connect(DATABASE_URL)
 
@@ -44,45 +33,25 @@ def init_database():
     with db() as conn:
         with conn.cursor() as cur:
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS players (
-                    id BIGSERIAL PRIMARY KEY,
-                    telegram_id BIGINT UNIQUE NOT NULL,
-                    username TEXT,
-                    first_name TEXT,
-                    country_id BIGINT,
-                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS players (id BIGSERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE NOT NULL, username TEXT, first_name TEXT, country_id BIGINT, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+            )
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS owner (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    telegram_id BIGINT UNIQUE NOT NULL,
-                    username TEXT,
-                    first_name TEXT,
-                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            cur.execute(
+                "ALTER TABLE players ADD COLUMN IF NOT EXISTS country_id BIGINT"
+            )
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS official_links (
-                    key TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    url TEXT DEFAULT ''
-                )
-            """)
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY CHECK (id = 1), telegram_id BIGINT UNIQUE NOT NULL, username TEXT, first_name TEXT, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+            )
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS countries (
-                    id BIGSERIAL PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    flag TEXT DEFAULT '🌍',
-                    description TEXT DEFAULT '',
-                    active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS official_links (key TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT DEFAULT '')"
+            )
+
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS countries (id BIGSERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, flag TEXT DEFAULT '🌍', description TEXT DEFAULT '', active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+            )
 
             links = [
                 ("bot", "🤖 ربات Nexora"),
@@ -94,27 +63,17 @@ def init_database():
 
             for key, title in links:
                 cur.execute(
-                    """
-                    INSERT INTO official_links (key, title)
-                    VALUES (%s, %s)
-                    ON CONFLICT (key) DO NOTHING
-                    """,
+                    "INSERT INTO official_links (key, title) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING",
                     (key, title),
                 )
 
         conn.commit()
 
 
-# =========================
-# OWNER
-# =========================
-
 def get_owner():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT telegram_id FROM owner WHERE id = 1"
-            )
+            cur.execute("SELECT telegram_id FROM owner WHERE id = 1")
             return cur.fetchone()
 
 
@@ -123,25 +82,13 @@ def is_owner(user_id):
     return owner is not None and owner[0] == user_id
 
 
-# =========================
-# START
-# =========================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO players
-                (telegram_id, username, first_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (telegram_id)
-                DO UPDATE SET
-                    username = EXCLUDED.username,
-                    first_name = EXCLUDED.first_name
-                """,
+                "INSERT INTO players (telegram_id, username, first_name) VALUES (%s, %s, %s) ON CONFLICT (telegram_id) DO UPDATE SET username = EXCLUDED.username, first_name = EXCLUDED.first_name",
                 (user.id, user.username, user.first_name),
             )
         conn.commit()
@@ -149,22 +96,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     owner = get_owner()
 
     if owner is None:
-        keyboard = [[
-            InlineKeyboardButton(
-                "👑 قبول مالکیت",
-                callback_data="claim_owner"
-            ),
-            InlineKeyboardButton(
-                "❌ انصراف",
-                callback_data="cancel_owner"
-            )
-        ]]
+        keyboard = [
+            [
+                InlineKeyboardButton("👑 قبول مالکیت", callback_data="claim_owner"),
+                InlineKeyboardButton("❌ انصراف", callback_data="cancel_owner"),
+            ]
+        ]
 
         await update.message.reply_text(
-            "🌍 به Nexora خوش آمدید!\n\n"
-            "هنوز مالک بازی تعیین نشده است.\n\n"
-            "اگر شما سازنده بازی هستید، می‌توانید مالکیت Nexora "
-            "را بر عهده بگیرید.",
+            "🌍 به Nexora خوش آمدید!\n\nهنوز مالک بازی تعیین نشده است.\n\nاگر شما سازنده بازی هستید، می‌توانید مالکیت Nexora را بر عهده بگیرید.",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
@@ -173,24 +113,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_owner_panel(update, context)
         return
 
-    keyboard = [[
-        InlineKeyboardButton(
-            "🌍 انتخاب کشور",
-            callback_data="choose_country"
-        )
-    ]]
+    keyboard = [
+        [InlineKeyboardButton("🌍 انتخاب کشور", callback_data="choose_country")]
+    ]
 
     await update.message.reply_text(
-        "🌍 به Nexora خوش آمدید!\n\n"
-        "حساب شما ثبت شد. 🔥\n\n"
-        "برای شروع کشور خود را انتخاب کنید:",
+        "🌍 به Nexora خوش آمدید!\n\nحساب شما ثبت شد. 🔥\n\nبرای شروع کشور خود را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-
-# =========================
-# OWNER CLAIM
-# =========================
 
 async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -200,46 +131,30 @@ async def claim_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT telegram_id FROM owner WHERE id = 1"
-            )
+            cur.execute("SELECT telegram_id FROM owner WHERE id = 1")
             owner = cur.fetchone()
 
             if owner is not None:
-                await query.edit_message_text(
-                    "🔒 مالک Nexora قبلاً تعیین شده است."
-                )
+                await query.edit_message_text("🔒 مالک Nexora قبلاً تعیین شده است.")
                 return
 
             cur.execute(
-                """
-                INSERT INTO owner
-                (id, telegram_id, username, first_name)
-                VALUES (1, %s, %s, %s)
-                """,
+                "INSERT INTO owner (id, telegram_id, username, first_name) VALUES (1, %s, %s, %s)",
                 (user.id, user.username, user.first_name),
             )
 
         conn.commit()
 
     await query.edit_message_text(
-        "👑 تبریک!\n\n"
-        "شما با موفقیت به عنوان مالک Nexora ثبت شدید. 🔒"
+        "👑 تبریک!\n\nشما با موفقیت به عنوان مالک Nexora ثبت شدید. 🔒"
     )
 
 
 async def cancel_owner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    await query.edit_message_text("❌ درخواست مالکیت لغو شد.")
 
-    await query.edit_message_text(
-        "❌ درخواست مالکیت لغو شد."
-    )
-
-
-# =========================
-# OWNER PANEL
-# =========================
 
 async def send_owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -273,10 +188,6 @@ async def owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_owner_panel(update, context)
 
 
-# =========================
-# OFFICIAL LINKS
-# =========================
-
 async def links_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -287,35 +198,28 @@ async def links_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT key, title, url
-                FROM official_links
-                ORDER BY key
-                """
-            )
+            cur.execute("SELECT key, title, url FROM official_links ORDER BY key")
             links = cur.fetchall()
 
     text = "🔗 مدیریت لینک‌های رسمی\n\n"
     keyboard = []
 
     for key, title, url in links:
-        text += f"{title}\n"
-        text += f"{url if url else '❌ تنظیم نشده'}\n\n"
+        text += title + "\n"
+        text += (url if url else "❌ تنظیم نشده") + "\n\n"
 
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✏️ ویرایش {title}",
-                callback_data=f"edit_link:{key}",
-            )
-        ])
-
-    keyboard.append([
-        InlineKeyboardButton(
-            "🔙 بازگشت",
-            callback_data="owner_panel",
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "✏️ ویرایش " + title,
+                    callback_data="edit_link:" + key,
+                )
+            ]
         )
-    ])
+
+    keyboard.append(
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="owner_panel")]
+    )
 
     await query.edit_message_text(
         text,
@@ -348,10 +252,9 @@ async def edit_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["editing_link"] = key
 
     await query.edit_message_text(
-        f"✏️ ویرایش {row[0]}\n\n"
+        "✏️ ویرایش " + row[0] + "\n\n"
         "لینک جدید را در یک پیام ارسال کنید.\n\n"
-        "مثال:\n"
-        "https://t.me/example"
+        "مثال:\nhttps://t.me/example"
     )
 
 
@@ -367,33 +270,21 @@ async def save_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
     if not url.startswith(("http://", "https://", "tg://")):
-        await update.message.reply_text(
-            "❌ لینک معتبر نیست."
-        )
+        await update.message.reply_text("❌ لینک معتبر نیست.")
         return
 
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE official_links
-                SET url = %s
-                WHERE key = %s
-                """,
+                "UPDATE official_links SET url = %s WHERE key = %s",
                 (url, key),
             )
         conn.commit()
 
     context.user_data.pop("editing_link", None)
 
-    await update.message.reply_text(
-        "✅ لینک با موفقیت ذخیره شد."
-    )
+    await update.message.reply_text("✅ لینک با موفقیت ذخیره شد.")
 
-
-# =========================
-# COUNTRIES
-# =========================
 
 async def countries_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -426,10 +317,7 @@ async def add_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["country_step"] = "name"
 
     await query.edit_message_text(
-        "➕ افزودن کشور\n\n"
-        "نام کشور را ارسال کنید.\n\n"
-        "مثال:\n"
-        "ایران"
+        "➕ افزودن کشور\n\nنام کشور را ارسال کنید.\n\nمثال:\nایران"
     )
 
 
@@ -444,8 +332,7 @@ async def receive_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["country_step"] = "flag"
 
         await update.message.reply_text(
-            "🇮🇷 حالا پرچم کشور را ارسال کنید.\n\n"
-            "مثال: 🇮🇷"
+            "🇮🇷 حالا پرچم کشور را ارسال کنید.\n\nمثال: 🇮🇷"
         )
         return
 
@@ -454,8 +341,7 @@ async def receive_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["country_step"] = "description"
 
         await update.message.reply_text(
-            "📝 توضیح کشور را ارسال کنید.\n\n"
-            "اگر توضیح نمی‌خواهید بنویسید: ندارد"
+            "📝 توضیح کشور را ارسال کنید.\n\nاگر توضیح نمی‌خواهید بنویسید: ندارد"
         )
         return
 
@@ -471,23 +357,17 @@ async def receive_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
-                        INSERT INTO countries
-                        (name, flag, description)
-                        VALUES (%s, %s, %s)
-                        """,
+                        "INSERT INTO countries (name, flag, description) VALUES (%s, %s, %s)",
                         (name, flag, description),
                     )
                 conn.commit()
 
             await update.message.reply_text(
-                f"✅ کشور {flag} {name} با موفقیت اضافه شد."
+                "✅ کشور " + flag + " " + name + " با موفقیت اضافه شد."
             )
 
         except psycopg.errors.UniqueViolation:
-            await update.message.reply_text(
-                "❌ این کشور قبلاً اضافه شده است."
-            )
+            await update.message.reply_text("❌ این کشور قبلاً اضافه شده است.")
 
         context.user_data.pop("country_step", None)
         context.user_data.pop("country_name", None)
@@ -505,11 +385,7 @@ async def country_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, name, flag, active
-                FROM countries
-                ORDER BY name
-                """
+                "SELECT id, name, flag, active FROM countries ORDER BY name"
             )
             countries = cur.fetchall()
 
@@ -520,7 +396,7 @@ async def country_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for country_id, name, flag, active in countries:
             status = "🟢 فعال" if active else "🔴 غیرفعال"
-            text += f"{flag} {name} — {status}\n"
+            text += flag + " " + name + " — " + status + "\n"
 
     keyboard = [
         [InlineKeyboardButton("➕ افزودن کشور", callback_data="add_country")],
@@ -533,10 +409,6 @@ async def country_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# =========================
-# PLAYER COUNTRY
-# =========================
-
 async def choose_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -544,12 +416,7 @@ async def choose_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, name, flag
-                FROM countries
-                WHERE active = TRUE
-                ORDER BY name
-                """
+                "SELECT id, name, flag FROM countries WHERE active = TRUE ORDER BY name"
             )
             countries = cur.fetchall()
 
@@ -562,12 +429,14 @@ async def choose_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
 
     for country_id, name, flag in countries:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{flag} {name}",
-                callback_data=f"select_country:{country_id}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    flag + " " + name,
+                    callback_data="select_country:" + str(country_id),
+                )
+            ]
+        )
 
     await query.edit_message_text(
         "🌍 کشور خود را انتخاب کنید:",
@@ -584,27 +453,17 @@ async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT name, flag, description
-                FROM countries
-                WHERE id = %s AND active = TRUE
-                """,
+                "SELECT name, flag, description FROM countries WHERE id = %s AND active = TRUE",
                 (country_id,),
             )
             country = cur.fetchone()
 
             if not country:
-                await query.edit_message_text(
-                    "❌ این کشور پیدا نشد."
-                )
+                await query.edit_message_text("❌ این کشور پیدا نشد.")
                 return
 
             cur.execute(
-                """
-                UPDATE players
-                SET country_id = %s
-                WHERE telegram_id = %s
-                """,
+                "UPDATE players SET country_id = %s WHERE telegram_id = %s",
                 (country_id, query.from_user.id),
             )
 
@@ -613,15 +472,35 @@ async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name, flag, description = country
 
     await query.edit_message_text(
-        f"✅ کشور شما انتخاب شد!\n\n"
-        f"{flag} {name}\n\n"
-        f"{description if description else 'توضیحی ثبت نشده است.'}"
+        "✅ کشور شما انتخاب شد!\n\n"
+        + flag + " " + name + "\n\n"
+        + (description if description else "توضیحی ثبت نشده است.")
     )
 
 
-# =========================
-# TEXT ROUTER
-# =========================
+async def players_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_owner(query.from_user.id):
+        await query.edit_message_text("⛔ دسترسی غیرمجاز.")
+        return
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM players")
+            count = cur.fetchone()[0]
+
+    keyboard = [
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="owner_panel")]
+    ]
+
+    await query.edit_message_text(
+        "👥 مدیریت بازیکنان\n\n"
+        "تعداد بازیکنان ثبت‌شده: " + str(count),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -639,10 +518,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# =========================
-# BOT
-# =========================
-
 async def run_bot():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured.")
@@ -657,80 +532,51 @@ async def run_bot():
     application.add_handler(CommandHandler("start", start))
 
     application.add_handler(
-        CallbackQueryHandler(
-            claim_owner,
-            pattern=r"^claim_owner$"
-        )
+        CallbackQueryHandler(claim_owner, pattern=r"^claim_owner$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            cancel_owner,
-            pattern=r"^cancel_owner$"
-        )
+        CallbackQueryHandler(cancel_owner, pattern=r"^cancel_owner$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            owner_panel,
-            pattern=r"^owner_panel$"
-        )
+        CallbackQueryHandler(owner_panel, pattern=r"^owner_panel$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            links_menu,
-            pattern=r"^links$"
-        )
+        CallbackQueryHandler(links_menu, pattern=r"^links$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            edit_link,
-            pattern=r"^edit_link:"
-        )
+        CallbackQueryHandler(edit_link, pattern=r"^edit_link:")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            countries_menu,
-            pattern=r"^countries$"
-        )
+        CallbackQueryHandler(countries_menu, pattern=r"^countries$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            add_country,
-            pattern=r"^add_country$"
-        )
+        CallbackQueryHandler(add_country, pattern=r"^add_country$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            country_list,
-            pattern=r"^country_list$"
-        )
+        CallbackQueryHandler(country_list, pattern=r"^country_list$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            choose_country,
-            pattern=r"^choose_country$"
-        )
+        CallbackQueryHandler(choose_country, pattern=r"^choose_country$")
     )
 
     application.add_handler(
-        CallbackQueryHandler(
-            select_country,
-            pattern=r"^select_country:"
-        )
+        CallbackQueryHandler(select_country, pattern=r"^select_country:")
     )
 
     application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            text_router
-        )
+        CallbackQueryHandler(players_menu, pattern=r"^players$")
+    )
+
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
     )
 
     await application.initialize()
