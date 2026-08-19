@@ -1864,7 +1864,73 @@ async def links_admin(
             keyboard
         ),
     )
+async def owner_panel(
+    update,
+    context,
+):
 
+    if update.callback_query:
+
+        query = update.callback_query
+        await query.answer()
+
+        if not is_owner(query.from_user.id):
+
+            await query.edit_message_text(
+                "⛔ دسترسی غیرمجاز."
+            )
+
+            return
+
+    else:
+
+        if not is_owner(update.effective_user.id):
+
+            return
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🌍 مدیریت کشورها",
+                callback_data="country_admin",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 بازیکنان",
+                callback_data="players_admin",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔗 لینک‌های رسمی",
+                callback_data="links_admin",
+            )
+        ],
+    ]
+
+    text = (
+        "👑 پنل مالک Nexora\n\n"
+        "یک بخش را انتخاب کنید:"
+    )
+
+    if update.callback_query:
+
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
+        )
+
+    else:
+
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
+)
 
 # ---------------- MAIN ----------------
 
